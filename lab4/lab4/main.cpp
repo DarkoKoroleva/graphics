@@ -357,9 +357,9 @@ bool InitializeDirect3D()
 
 
     UINT flags = 0;
-//#ifdef _DEBUG
-//    flags |= D3D11_CREATE_DEVICE_DEBUG;
-//#endif
+#ifdef _DEBUG
+    flags |= D3D11_CREATE_DEVICE_DEBUG;
+#endif
 
     DXGI_SWAP_CHAIN_DESC scd = {};
     scd.BufferCount = 2;
