@@ -130,10 +130,18 @@ bool LoadDDS(const wchar_t* filename, TextureDesc& desc)
     {
         switch (header.ddspf.dwFourCC)
         {
-        case FOURCC_DXT1: desc.fmt = DXGI_FORMAT_BC1_UNORM; break;
-        case FOURCC_DXT3: desc.fmt = DXGI_FORMAT_BC2_UNORM; break;
-        case FOURCC_DXT5: desc.fmt = DXGI_FORMAT_BC3_UNORM; break;
-        default: desc.fmt = DXGI_FORMAT_UNKNOWN; break;
+        case FOURCC_DXT1: 
+            desc.fmt = DXGI_FORMAT_BC1_UNORM; 
+            break;
+        case FOURCC_DXT3: 
+            desc.fmt = DXGI_FORMAT_BC2_UNORM;
+            break;
+        case FOURCC_DXT5: 
+            desc.fmt = DXGI_FORMAT_BC3_UNORM; 
+            break;
+        default: 
+            desc.fmt = DXGI_FORMAT_UNKNOWN; 
+            break;
         }
     }
     else if (header.ddspf.dwFlags & DDS_RGB)
@@ -170,7 +178,7 @@ ID3D11Device* g_pD3DDevice = nullptr;
 ID3D11DeviceContext* g_pD3DContext = nullptr;
 IDXGISwapChain* g_pSwapChain = nullptr;
 ID3D11RenderTargetView* g_pBackBufferRTV = nullptr;
-ID3D11DepthStencilView* g_pDepthStencilView = nullptr;  
+ID3D11DepthStencilView* g_pDepthStencilView = nullptr;
 
 struct TexturedVertex
 {
@@ -631,7 +639,7 @@ void LoadTextures()
     HRESULT hr;
 
     TextureDesc texDesc;
-    std::wstring fullPath = GetExePath() + L"..\\..\\textures\\like200.dds";
+    std::wstring fullPath = GetExePath() + L"..\\..\\textures\\like.dds";
     if (!LoadDDS(fullPath.c_str(), texDesc))
     {
         MessageBoxA(NULL, "Failed to load .dds", "Error", MB_OK);
