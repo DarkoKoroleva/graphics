@@ -637,6 +637,9 @@ void CompileShaders()
 
     g_pD3DDevice->CreateInputLayout(layout, 2, pVsBlob->GetBufferPointer(), pVsBlob->GetBufferSize(), &g_pSkyboxInputLayout);
 
+    assert(g_pPlanePS != nullptr);
+    OutputDebugStringA(g_pPlanePS ? "Plane PS created\n" : "Plane PS not created!\n");
+
     SAFE_RELEASE(pVsBlob);
     SAFE_RELEASE(pPsBlob);
 }
@@ -946,10 +949,15 @@ void Render()
         ID3D11Buffer* modelBuffer;
     } planes[2];
 
+    assert(g_pModelCBPlane1 != nullptr);
+    assert(g_pModelCBPlane2 != nullptr);
+    assert(g_pPlaneVertexBuffer != nullptr);
+    assert(g_pPlaneIndexBuffer != nullptr);
+
     // Плоскость 1
     XMMATRIX plane1World = XMMatrixTranslation(0.0f, 0.0f, 0.6f) * XMMatrixRotationY(angle);
     planes[0].world = plane1World;
-    XMVECTOR center1 = XMVectorSet(0.0f, 0.0f, 0.5f, 1.0f);
+    XMVECTOR center1 = plane1World.r[3];
     XMVECTOR toEye1 = XMVectorSubtract(eyePos, center1);
     planes[0].distance = XMVectorGetX(XMVector3Length(toEye1));
     planes[0].modelBuffer = g_pModelCBPlane1;
@@ -957,7 +965,7 @@ void Render()
     // Плоскость 2 
     XMMATRIX plane2World = XMMatrixTranslation(0.0f, 0.0f, 1.2f) * XMMatrixRotationY(angle);
     planes[1].world = plane2World;
-    XMVECTOR center2 = XMVectorSet(0.0f, 0.0f, 1.0f, 1.0f);
+    XMVECTOR center2 = plane2World.r[3];
     XMVECTOR toEye2 = XMVectorSubtract(eyePos, center2);
     planes[1].distance = XMVectorGetX(XMVector3Length(toEye2));
     planes[1].modelBuffer = g_pModelCBPlane2;
@@ -970,6 +978,10 @@ void Render()
     g_pD3DContext->OMSetBlendState(g_pBlendState, nullptr, 0xffffffff);
     g_pD3DContext->OMSetDepthStencilState(g_pDepthNoWrite, 0);
     g_pD3DContext->RSSetState(g_pRSCullNone);
+
+    assert(g_pBlendState != nullptr);
+    assert(g_pDepthNoWrite != nullptr);
+    assert(g_pRSCullNone != nullptr);
 
     g_pD3DContext->VSSetShader(g_pVertexShader, nullptr, 0);
     g_pD3DContext->PSSetShader(g_pPlanePS, nullptr, 0);
