@@ -301,6 +301,7 @@ void CleanupDirect3D();
 void Render();
 void ResizeWindow(UINT newWidth, UINT newHeight);
 void UpdateCamera(double deltaTime);
+void SetupColorBuffer(UINT width, UINT height);
 
 
 void CreateInstances();
@@ -309,6 +310,17 @@ void BuildFrustumPlanes(const XMMATRIX& vp, XMVECTOR planes[6]);
 void TransformAABB(const XMMATRIX& transform, const XMVECTOR& localMin, const XMVECTOR& localMax, XMVECTOR& worldMin, XMVECTOR& worldMax);
 bool IsAABBInsideFrustum(const XMVECTOR planes[6], const XMVECTOR& aabbMin, const XMVECTOR& aabbMax);
 void UpdateInstanceTransforms(double time);
+
+// В глобальной области (рядом с другими текстурами)
+ID3D11Texture2D* g_pColorBuffer = nullptr;
+ID3D11RenderTargetView* g_pColorBufferRTV = nullptr;
+ID3D11ShaderResourceView* g_pColorBufferSRV = nullptr;
+
+// Флаг включения фильтра
+bool g_useFilter = true;
+// Пиксельный шейдер для фильтра
+ID3D11PixelShader* g_pFilterPS = nullptr;
+ID3D11VertexShader* g_pFilterVS = nullptr;
 
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE,
     _In_ LPWSTR, _In_ int nCmdShow)
@@ -352,6 +364,7 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE,
     }
 
     CreateBuffers();
+    SetupColorBuffer(g_WindowWidth, g_WindowHeight);
     CompileShaders();
     LoadTextures();       
     LoadTextureArray();      
@@ -449,7 +462,7 @@ bool InitializeDirect3D()
 
     UINT flags = 0;
 #ifdef _DEBUG
-    // flags |= D3D11_CREATE_DEVICE_DEBUG;
+    flags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
     DXGI_SWAP_CHAIN_DESC scd = {};
@@ -506,6 +519,33 @@ bool InitializeDirect3D()
     if (FAILED(hr)) return false;
 
     return true;
+}
+
+void SetupColorBuffer(UINT width, UINT height)
+{
+    SAFE_RELEASE(g_pColorBuffer);
+    SAFE_RELEASE(g_pColorBufferRTV);
+    SAFE_RELEASE(g_pColorBufferSRV);
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.ArraySize = 1;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    desc.CPUAccessFlags = 0;
+    desc.MiscFlags = 0;
+    desc.SampleDesc.Count = 1;
+    desc.SampleDesc.Quality = 0;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.Height = height;
+    desc.Width = width;
+    desc.MipLevels = 1;
+
+    HRESULT hr = g_pD3DDevice->CreateTexture2D(&desc, nullptr, &g_pColorBuffer);
+    if (SUCCEEDED(hr))
+        hr = g_pD3DDevice->CreateRenderTargetView(g_pColorBuffer, nullptr, &g_pColorBufferRTV);
+    if (SUCCEEDED(hr))
+        hr = g_pD3DDevice->CreateShaderResourceView(g_pColorBuffer, nullptr, &g_pColorBufferSRV);
+    assert(SUCCEEDED(hr));
 }
 
 void CreateBuffers()
@@ -839,6 +879,34 @@ void CompileShaders()
         }
     )";
 
+    const char* filterVS = R"(
+        struct VSInput { uint vertexId : SV_VertexID; };
+        struct VSOutput { float4 pos : SV_Position; float2 uv : TEXCOORD; };
+        VSOutput vs(VSInput v) {
+            VSOutput o;
+            float4 pos = float4(0,0,0,0);
+            switch (v.vertexId) {
+                case 0: pos = float4(-1, 1, 0, 1); break;
+                case 1: pos = float4(3,  1, 0, 1); break;
+                case 2: pos = float4( -1, -3, 0, 1); break;
+            }
+            o.pos = pos;
+            o.uv = float2(pos.x * 0.5 + 0.5, 0.5 - pos.y * 0.5);
+            return o;
+        }
+    )";
+
+    const char* filterPS = R"(
+        Texture2D colorTexture : register(t0);
+        SamplerState colorSampler : register(s0);
+        struct VSOutput { float4 pos : SV_Position; float2 uv : TEXCOORD; };
+        float4 ps(VSOutput i) : SV_Target0 {
+            float3 color = colorTexture.Sample(colorSampler, i.uv).rgb;
+            float gray = dot(color, float3(0.299, 0.587, 0.114));
+            return float4(gray, gray, gray, 1.0); // вместо float4(1,0,0,1)
+        }
+    )";
+
     UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
 #ifdef _DEBUG
     flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
@@ -900,6 +968,34 @@ void CompileShaders()
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0}
     };
     g_pD3DDevice->CreateInputLayout(layoutSky, 2, pVsBlob->GetBufferPointer(), pVsBlob->GetBufferSize(), &g_pSkyboxInputLayout);
+
+
+    ID3DBlob* pFilterVSBlob = nullptr;
+    ID3DBlob* pFilterPSBlob = nullptr;
+    D3DCompile(filterVS, strlen(filterVS), nullptr, nullptr, nullptr, "vs", "vs_5_0", flags, 0, &pFilterVSBlob, &pErrorBlob);
+    if (pErrorBlob)
+    {
+        if (pErrorBlob) OutputDebugStringA((const char*)pErrorBlob->GetBufferPointer());
+        SAFE_RELEASE(pErrorBlob);
+    }
+    else
+    {
+        g_pD3DDevice->CreateVertexShader(pFilterVSBlob->GetBufferPointer(), pFilterVSBlob->GetBufferSize(), nullptr, &g_pFilterVS);
+        SAFE_RELEASE(pFilterVSBlob);
+    }
+
+    D3DCompile(filterPS, strlen(filterPS), nullptr, nullptr, nullptr, "ps", "ps_5_0", flags, 0, &pFilterPSBlob, &pErrorBlob);
+    if (pErrorBlob) {
+        OutputDebugStringA((const char*)pErrorBlob->GetBufferPointer());
+        SAFE_RELEASE(pErrorBlob);
+    }
+    else
+    {
+        g_pD3DDevice->CreatePixelShader(pFilterPSBlob->GetBufferPointer(), pFilterPSBlob->GetBufferSize(), nullptr, &g_pFilterPS);
+        SAFE_RELEASE(pFilterPSBlob);
+    }
+
+
     SAFE_RELEASE(pVsBlob);
     SAFE_RELEASE(pPsBlob);
 
@@ -1299,9 +1395,13 @@ void Render()
     UpdateCamera(deltaTime);
 
     g_pD3DContext->ClearState();
-    g_pD3DContext->OMSetRenderTargets(1, &g_pBackBufferRTV, g_pDepthStencilView);
+
+   // Выбор целевого рендер - таргета
+    ID3D11RenderTargetView * sceneTarget = g_useFilter ? g_pColorBufferRTV : g_pBackBufferRTV;
+    g_pD3DContext->OMSetRenderTargets(1, &sceneTarget, g_pDepthStencilView);
+
     const float clearColor[4] = { 0.25f, 0.25f, 0.25f, 1.0f };
-    g_pD3DContext->ClearRenderTargetView(g_pBackBufferRTV, clearColor);
+    g_pD3DContext->ClearRenderTargetView(sceneTarget, clearColor);
     g_pD3DContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
     D3D11_VIEWPORT vp = { 0, 0, (float)g_WindowWidth, (float)g_WindowHeight, 0.0f, 1.0f };
@@ -1497,6 +1597,31 @@ void Render()
     g_pD3DContext->OMSetBlendState(nullptr, nullptr, 0xffffffff);
     g_pD3DContext->OMSetDepthStencilState(nullptr, 0);
 
+    if (g_useFilter)
+    {
+        g_pD3DContext->OMSetRenderTargets(1, &g_pBackBufferRTV, nullptr);
+        g_pD3DContext->ClearRenderTargetView(g_pBackBufferRTV, clearColor);
+        // сброс состояний
+        g_pD3DContext->OMSetDepthStencilState(nullptr, 0);
+        g_pD3DContext->RSSetState(nullptr);
+        g_pD3DContext->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+        g_pD3DContext->IASetInputLayout(nullptr);
+        g_pD3DContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        // установка шейдеров фильтра
+        g_pD3DContext->VSSetShader(g_pFilterVS, nullptr, 0);
+        g_pD3DContext->PSSetShader(g_pFilterPS, nullptr, 0);
+        ID3D11ShaderResourceView* srv[] = { g_pColorBufferSRV };
+        g_pD3DContext->PSSetShaderResources(0, 1, srv);
+        ID3D11SamplerState* sampler[] = { g_pSampler };
+        g_pD3DContext->PSSetSamplers(0, 1, sampler);
+        g_pD3DContext->Draw(3, 0);
+    }
+
+    if(g_pColorBufferSRV == nullptr) {
+        OutputDebugStringA("ERROR: g_pColorBufferSRV is null!\n");
+        return; // или не делайте Draw
+    }
+
     g_pSwapChain->Present(1, 0);
 }
 
@@ -1541,6 +1666,8 @@ void ResizeWindow(UINT newWidth, UINT newHeight)
 
     g_WindowWidth = newWidth;
     g_WindowHeight = newHeight;
+
+    SetupColorBuffer(g_WindowWidth, g_WindowHeight);
 }
 
 void CleanupDirect3D()
@@ -1586,6 +1713,12 @@ void CleanupDirect3D()
     SAFE_RELEASE(g_pGeomBufferInst);
     SAFE_RELEASE(g_pVisibleIdsBuffer);
     SAFE_RELEASE(g_pTextureArrayView);
+
+    SAFE_RELEASE(g_pColorBuffer);
+    SAFE_RELEASE(g_pColorBufferRTV);
+    SAFE_RELEASE(g_pColorBufferSRV);
+    SAFE_RELEASE(g_pFilterVS);
+    SAFE_RELEASE(g_pFilterPS);
 
 #ifdef _DEBUG
     if (g_pD3DDevice)
