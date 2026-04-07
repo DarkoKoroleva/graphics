@@ -286,7 +286,7 @@ UINT g_WindowWidth = 1280;
 UINT g_WindowHeight = 720;
 float g_CamYaw = 0.0f;
 float g_CamPitch = 0.0f;
-float g_CamDistance = 5.0f;
+float g_CamDistance = 3.0f;
 bool g_KeyLeft = false, g_KeyRight = false, g_KeyUp = false, g_KeyDown = false;
 double g_LastFrameTime = 0.0;
 
@@ -769,6 +769,10 @@ void CompileShaders()
         {
             float4x4 vp;
         };
+        cbuffer VisibleIds : register(b3) 
+        {
+            uint4 ids[100];
+        };
         struct VSInput
         {
             float3 pos    : POSITION;
@@ -789,14 +793,14 @@ void CompileShaders()
         VSOutput vs(VSInput v)
         {
             VSOutput o;
-            uint idx = v.instanceId;
-            float4 worldPos = mul(geomBuffer[idx].model, float4(v.pos, 1.0));
+            uint globalIdx = ids[v.instanceId].x;   
+            float4 worldPos = mul(geomBuffer[globalIdx].model, float4(v.pos, 1.0));
             o.pos = mul(worldPos, vp);
             o.worldPos = worldPos;
             o.uv = v.uv;
-            o.tang = mul(geomBuffer[idx].norm, float4(v.tang, 0)).xyz;
-            o.norm = mul(geomBuffer[idx].norm, float4(v.norm, 0)).xyz;
-            o.instanceId = idx;
+            o.tang = mul(geomBuffer[globalIdx].norm, float4(v.tang, 0)).xyz;
+            o.norm = mul(geomBuffer[globalIdx].norm, float4(v.norm, 0)).xyz;
+            o.instanceId = v.instanceId; 
             return o;
         }
     )";
@@ -1529,8 +1533,8 @@ void Render()
     g_pD3DContext->VSSetShader(g_pInstancedVS, nullptr, 0);
     g_pD3DContext->PSSetShader(g_pInstancedPS, nullptr, 0);
 
-    ID3D11Buffer* cbInstVS[] = { nullptr, g_pGeomBufferInst, g_pViewProjCB };
-    g_pD3DContext->VSSetConstantBuffers(0, 3, cbInstVS);
+    ID3D11Buffer* cbInstVS[] = { nullptr, g_pGeomBufferInst, g_pViewProjCB, g_pVisibleIdsBuffer };
+    g_pD3DContext->VSSetConstantBuffers(0, 4, cbInstVS);
 
     ID3D11Buffer* cbInstPS[] = { nullptr, g_pGeomBufferInst, g_pSceneCB, g_pVisibleIdsBuffer };
     g_pD3DContext->PSSetConstantBuffers(1, 1, &g_pGeomBufferInst);  
