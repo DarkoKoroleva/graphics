@@ -1712,7 +1712,8 @@ void Render()
     g_pD3DContext->CSSetUnorderedAccessViews(1, 1, &nullUAV, nullptr); 
 
     ID3D11Buffer* nullCB = nullptr;
-    g_pD3DContext->CSSetConstantBuffers(0, 2, &nullCB);
+    g_pD3DContext->CSSetConstantBuffers(0, 1, &nullCB);
+    g_pD3DContext->CSSetConstantBuffers(1, 1, &nullCB);;
 
     g_pD3DContext->CopyResource(g_pIndirectArgsDraw, g_pIndirectArgsUAV);
 
